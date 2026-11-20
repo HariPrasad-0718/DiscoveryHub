@@ -39,6 +39,12 @@ jobs:
           cp -r .next/static .next/standalone/.next/static
           test -f .next/standalone/server.js
 
+            - name: Check build output
+        run: |
+          echo "NEXT_PUBLIC_API_URL=[$NEXT_PUBLIC_API_URL]"
+          echo "BACKEND_URL=[$BACKEND_URL]"
+          grep -rl "discoveryhub-web.azurewebsites.net" .next/standalone .next/static || echo "no short name in build output"    
+
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
         with:
