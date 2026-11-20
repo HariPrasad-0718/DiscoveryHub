@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       BACKEND_URL: ${{ vars.BACKEND_URL }}
-      NEXT_PUBLIC_API_URL: ${{ vars.NEXT_PUBLIC_API_URL }}
+      NEXT_PUBLIC_API_URL: ""
       NEXT_PUBLIC_USE_MOCK_AUTH: "false"
       NEXT_PUBLIC_USE_MOCK_NOTES: ${{ vars.NEXT_PUBLIC_USE_MOCK_NOTES }}
     defaults:
@@ -28,9 +28,19 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Require BACKEND_URL
+        run: |
+          case "$BACKEND_URL" in
+            https://*) echo "BACKEND_URL looks valid" ;;
+            *) echo "BACKEND_URL is missing or not https"; exit 1 ;;
+          esac
+
       - run: npm ci
 
-      - run: npm run build
+      - name: Build (clean)
+        run: |
+          rm -rf .next
+          npm run build
 
       - name: Assemble standalone output
         run: |
@@ -39,11 +49,14 @@ jobs:
           cp -r .next/static .next/standalone/.next/static
           test -f .next/standalone/server.js
 
-      - name: Check build output
+      - name: Fail if the old short name is in the build
         run: |
-          echo "NEXT_PUBLIC_API_URL=[$NEXT_PUBLIC_API_URL]"
-          echo "BACKEND_URL=[$BACKEND_URL]"
-          grep -rl "discoveryhub-web.azurewebsites.net" .next/standalone .next/static || echo "no short name in build output"
+          echo "BUILD_ID=$(cat .next/standalone/.next/BUILD_ID)"
+          if grep -rl "discoveryhub-web.azurewebsites.net" .next/standalone; then
+            echo "Old short host name found in build output"
+            exit 1
+          fi
+          echo "Build output is clean"
 
       - name: Deploy to Azure App Service
         uses: azure/webapps-deploy@v3
@@ -51,3 +64,20 @@ jobs:
           app-name: discoveryhub-web
           publish-profile: ${{ secrets.AZURE_WEB_PUBLISH_PROFILE }}
           package: frontend/.next/standalone
+          clean: true
+          restart: true
+
+      - name: Verify the live site
+        run: |
+          sleep 90
+          SITE="https://discoveryhub-web-cxh5gedra6bpdkc9.westus3-01.azurewebsites.net"
+          CHUNKS=$(curl -s "$SITE/login" | grep -o "_next/static/chunks/[a-zA-Z0-9_-]*\.js" | sort -u)
+          echo "Live chunks:"
+          echo "$CHUNKS"
+          for c in $CHUNKS; do
+            if curl -s "$SITE/$c" | grep -q "discoveryhub-web.azurewebsites.net"; then
+              echo "LIVE SITE STILL SERVES THE OLD SHORT NAME in $c"
+              exit 1
+            fi
+          done
+          echo "Live site is clean"cd /d/DiscoveryHub
