@@ -10,6 +10,7 @@ import type {
   ArtifactCode,
   ArtifactDraft,
   ArtifactStudioData,
+  ClarificationAnswer,
   DraftConfig,
   DraftSection,
   ExportOptions,
@@ -61,6 +62,59 @@ export async function saveDraftSection(
     method: "PUT",
     body: JSON.stringify({ bullets }),
   });
+}
+
+/**
+ * Refresh: rewrite the whole draft from all approved answers (old and newly approved), updating
+ * its current text. Runs in the background; the new text arrives as drafts to review.
+ * Backend: POST /api/projects/{projectId}/artifacts/{code}/refresh
+ */
+export async function refreshArtifactDraft(projectId: string, code: ArtifactCode): Promise<void> {
+  await apiRequest<{ agentRunId: number }>(`${artifactPath(projectId, code)}/refresh`, { method: "POST" });
+}
+
+/**
+ * Save the section's Markdown text (from the Edit box). It becomes the section's approved content.
+ * Backend: PUT /api/projects/{projectId}/artifacts/{code}/sections/{sectionId}  body: { content }
+ */
+export async function saveDraftSectionContent(
+  projectId: string,
+  code: ArtifactCode,
+  sectionId: string,
+  content: string,
+): Promise<DraftSection> {
+  return apiRequest<DraftSection>(`${artifactPath(projectId, code)}/sections/${encodeURIComponent(sectionId)}`, {
+    method: "PUT",
+    body: JSON.stringify({ content }),
+  });
+}
+
+/**
+ * Ask the agent to rewrite one section. Answers to its questions are saved and reused on every
+ * later rewrite. Runs in the background; the draft shows the section as working until it is done.
+ * Backend: POST /api/projects/{projectId}/artifacts/{code}/sections/{sectionId}/regenerate  body: { answers }
+ */
+export async function regenerateDraftSection(
+  projectId: string,
+  code: ArtifactCode,
+  sectionId: string,
+  answers: ClarificationAnswer[] = [],
+): Promise<void> {
+  await apiRequest<{ agentRunId: number }>(
+    `${artifactPath(projectId, code)}/sections/${encodeURIComponent(sectionId)}/regenerate`,
+    { method: "POST", body: JSON.stringify({ answers }) },
+  );
+}
+
+/**
+ * Ask the agent for up to 3 questions about one section. Runs in the background.
+ * Backend: POST /api/projects/{projectId}/artifacts/{code}/sections/{sectionId}/clarify
+ */
+export async function clarifyDraftSection(projectId: string, code: ArtifactCode, sectionId: string): Promise<void> {
+  await apiRequest<{ agentRunId: number }>(
+    `${artifactPath(projectId, code)}/sections/${encodeURIComponent(sectionId)}/clarify`,
+    { method: "POST" },
+  );
 }
 
 /**
